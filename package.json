@@ -1,0 +1,34 @@
+{
+  "name": "wyxan-mini-web-browser",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24.0.0 <25",
+    "npm": ">=11.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently --kill-others --names frontend,backend --prefix-colors cyan,magenta \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "npm run dev --workspace @wyxan/frontend",
+    "dev:backend": "npm run dev --workspace @wyxan/backend",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "npm run build --workspace @wyxan/frontend",
+    "build:backend": "npm run build --workspace @wyxan/backend",
+    "start": "concurrently --kill-others --names frontend,backend --prefix-colors cyan,magenta \"npm run start:frontend\" \"npm run start:backend\"",
+    "start:frontend": "npm run start --workspace @wyxan/frontend",
+    "start:backend": "npm run start --workspace @wyxan/backend",
+    "lint": "npm run lint --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "db:up": "docker compose up -d --wait mongodb",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f mongodb"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "concurrently": "^10.0.7",
+    "eslint": "^9.39.5",
+    "typescript": "5.9.3"
+  }
+}
