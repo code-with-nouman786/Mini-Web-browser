@@ -10,6 +10,7 @@ import { normalizeAddress } from "../common/normalize-address";
 import { PeopleService } from "../people/people.service";
 import { CreateSiteDto } from "./create-site.dto";
 import { Site } from "./site.schema";
+import { renderableSite } from "./renderable-site";
 
 @Injectable()
 export class SitesService implements OnModuleInit {
@@ -35,14 +36,14 @@ export class SitesService implements OnModuleInit {
     if (!site) {
       throw new NotFoundException("Site not found");
     }
-    return site;
+    return renderableSite(site);
   }
 
   async create(dto: CreateSiteDto) {
     await this.people.assertExists(dto.author);
 
     try {
-      return await this.sites.create({
+      const site = await this.sites.create({
         address: normalizeAddress(dto.address),
         title: dto.title,
         html: dto.html,
@@ -50,6 +51,7 @@ export class SitesService implements OnModuleInit {
         author: dto.author,
         ...(dto.publishedAt ? { publishedAt: new Date(dto.publishedAt) } : {}),
       });
+      return renderableSite(site);
     } catch (error: unknown) {
       if (error instanceof mongo.MongoServerError && error.code === 11000) {
         throw new ConflictException("A site with this address already exists");

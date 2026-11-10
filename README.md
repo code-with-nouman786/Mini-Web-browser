@@ -1,12 +1,12 @@
 # Mini Web Browser
 
-Wyxan Full Stack Technical Assessment, stage 3: deterministic seed data and content search.
+Wyxan Full Stack Technical Assessment, stage 4: secure browser interface and site navigation.
 
 This npm workspaces monorepo contains a Next.js frontend, a NestJS backend, and a
-local MongoDB service. The frontend remains an initialization placeholder. The
-backend stores people, sites, and visits, with explicit seeding and content search.
-There is no frontend browser UI, navigation stack, publishing
-workflow, or HTML iframe rendering. `GET /api` still returns initialization status.
+local MongoDB service. The frontend supports person selection, typed browsing and
+internal links in an isolated page viewport. Back and forward are displayed but
+disabled; there is no navigation stack, search UI, history UI or publishing UI.
+`GET /api` still returns initialization status.
 
 ## Architecture
 
@@ -124,6 +124,8 @@ database duplicate-key errors are returned as HTTP `409`.
 Site HTML and plain text are supplied explicitly and stored without rendering or
 extracting content. `plainText` may be an empty string. `publishedAt` defaults to
 the server's current time when omitted. Person names are required strings.
+Site GET and POST responses return `sanitizedHtml` instead of the raw `html`
+field. Stored raw HTML is retained in MongoDB but is never sent to the viewport.
 
 Visit `source` is one of `typed`, `link`, `search`, or `history`; these are metadata
 values and do not implement navigation or search. The server derives `status`
@@ -220,11 +222,53 @@ Whitespace is collapsed. Queries support Unicode letters and numbers, spaces,
 and apostrophes or hyphens within words. Arrays, objects, overlong values,
 non-whitespace control characters, quotes, regex syntax, and search operators receive `400`.
 
+## Browser startup and HTML containment
+
+After the existing environment-file setup, start MongoDB, seed the collection and
+run both applications from the repository root:
+
+```sh
+npm ci
+npm run db:up
+npm run seed
+npm run dev
+```
+
+Open <http://localhost:3000>, choose a person and submit `harbor.local`. The typed
+API client uses `NEXT_PUBLIC_API_URL` from `apps/frontend/.env.local`; this public
+value must be set before a production frontend build. Successful and missing
+typed/link navigations record a Visit for the selected person. No person means
+no navigation or Visit. A failed Visit write is shown separately from a page error.
+
+Every stored page is hostile. Backend `sanitize-html` applies a strict tag and
+attribute allowlist, removes author scripts, event handlers, CSS, forms, frames,
+plugins and resource URLs, and exposes only `sanitizedHtml` for rendering. Safe
+prose, headings, lists, tables and code remain. Discarding all author CSS is an
+intentional styling trade-off; a small trusted stylesheet supplies readable defaults.
+Marked absolute links must match their `data-address`; bare internal identifiers
+are also supported. Accepted links are rewritten to inert `href="#"` plus a
+normalized `data-internal-address`. Unmarked external URLs and unsafe schemes are
+removed. Address strings are database lookup identifiers, never fetched websites,
+so broken links remain valid content and produce the in-product Nowhere state.
+
+The frontend uses only `sanitizedHtml` in a `srcDoc` iframe. Its sandbox allows
+scripts solely for one fixed link bridge and deliberately omits `allow-same-origin`,
+forms, popups and top-navigation permissions. A CSP meta tag precedes content,
+denies network resources/connections and forms, and pins the exact bridge and
+trusted stylesheet by SHA-256; inline handlers and author styles are forbidden.
+The bridge is injected after sanitization, prevents link defaults (including
+modified/middle clicks), and sends only an internal address to the exact parent
+origin. Opaque frames emit a `null` origin, which is not a trustworthy identity:
+the parent also checks the current frame's WindowProxy, a fresh per-document
+channel, exact message shape and canonical address. Only then may it browse and
+record source `link`. Tests pin the hashes and exercise real Chromium containment.
+
 ## Build and verification
 
 ```sh
 npm run lint
 npm run typecheck
+npx playwright install chromium
 npm test
 npm run build
 ```
@@ -235,11 +279,12 @@ not require MongoDB to be running. Frontend output is generated in
 Dependencies, build output, TypeScript caches, and local environment files are
 excluded from Git.
 
-`npm test` compiles and runs the backend unit tests in the ignored `.test-dist`
-directory. The tests cover address normalization, unique-index setup and duplicate
-error handling, missing sites, DTO validation, visit outcomes, per-person history,
-deterministic upserts, link trails, and content search. They use model doubles and in-memory Mongoose documents and do not
-require a running MongoDB server. Production builds exclude the test files.
+`npm test` runs both apps' tests, including typed/link navigation, sanitization,
+message validation and real Chromium iframe/CSP checks, alongside the existing
+domain, seed and search tests. API/database tests use doubles and do not require
+MongoDB. Tests compile into ignored `.test-dist` directories. If using an existing
+Chromium installation, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable
+instead of downloading a browser. Production bundles exclude test code.
 
 After building, run both applications in production mode locally:
 
@@ -260,7 +305,7 @@ npm start
 | `npm run start:frontend` / `npm run start:backend` | Run one previously built application |
 | `npm run lint` | Lint both applications with ESLint |
 | `npm run typecheck` | Check both applications with TypeScript |
-| `npm test` | Run the backend unit tests |
+| `npm test` | Run backend, frontend and Chromium containment tests |
 | `npm run seed` | Upsert the deterministic demonstration data |
 | `npm run db:up` | Start MongoDB and wait for readiness |
 | `npm run db:logs` | Follow MongoDB logs |

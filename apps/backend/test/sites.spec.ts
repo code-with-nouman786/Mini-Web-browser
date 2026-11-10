@@ -22,6 +22,7 @@ function fixture() {
     init: mock.fn(async () => undefined),
     create: mock.fn(async (document: Record<string, unknown>) => ({
       _id: SITE_ID,
+      publishedAt: new Date("2026-10-01T00:00:00.000Z"),
       ...document,
     })),
     findOne: mock.fn((_filter: { address: string }) =>
@@ -113,12 +114,29 @@ test("returns a proper 404 for an unknown normalized address", async () => {
 
 test("finds an existing site through an equivalent address", async () => {
   const { model, service } = fixture();
-  const site = { _id: SITE_ID, address: "example.local" };
+  const site = {
+    _id: SITE_ID,
+    ...dto,
+    address: "example.local",
+    publishedAt: new Date("2026-10-01T00:00:00.000Z"),
+  };
   model.findOne.mock.mockImplementation(() => queryFor(site));
-  assert.deepEqual(await service.getByAddress(dto.address), site);
+  const result = await service.getByAddress(dto.address);
+  assert.equal(result.address, site.address);
+  assert.equal(result.sanitizedHtml, dto.html);
+  assert.equal("html" in result, false);
   assert.deepEqual(model.findOne.mock.calls[0].arguments, [
     { address: "example.local" },
   ]);
+});
+
+test("site creation returns sanitizedHtml and never returns the raw stored HTML", async () => {
+  const { model, service } = fixture();
+  const html = '<h1 onclick="attack()">Hello</h1><script>attack()</script>';
+  const result = await service.create({ ...dto, html });
+  assert.equal(model.create.mock.calls[0].arguments[0].html, html);
+  assert.equal(result.sanitizedHtml, "<h1>Hello</h1>");
+  assert.equal("html" in result, false);
 });
 
 test("does not create a site whose author does not exist", async () => {
