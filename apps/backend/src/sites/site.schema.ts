@@ -28,3 +28,11 @@ export class Site {
 }
 
 export const SiteSchema = SchemaFactory.createForClass(Site);
+SiteSchema.index(
+  { title: "text", plainText: "text" },
+  {
+    name: "site_content_text",
+    weights: { title: 5, plainText: 1 },
+    default_language: "none",
+  },
+);

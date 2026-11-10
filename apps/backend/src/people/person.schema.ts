@@ -10,3 +10,4 @@ export class Person {
 }
 
 export const PersonSchema = SchemaFactory.createForClass(Person);
+PersonSchema.index({ name: 1, _id: 1 });

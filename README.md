@@ -1,11 +1,11 @@
 # Mini Web Browser
 
-Wyxan Full Stack Technical Assessment, stage 2: backend domain and browsing APIs.
+Wyxan Full Stack Technical Assessment, stage 3: deterministic seed data and content search.
 
 This npm workspaces monorepo contains a Next.js frontend, a NestJS backend, and a
 local MongoDB service. The frontend remains an initialization placeholder. The
-backend stores people, sites, and visits and exposes the APIs documented below.
-There is no frontend browser UI, navigation stack, search, seed data, publishing
+backend stores people, sites, and visits, with explicit seeding and content search.
+There is no frontend browser UI, navigation stack, publishing
 workflow, or HTML iframe rendering. `GET /api` still returns initialization status.
 
 ## Architecture
@@ -104,10 +104,11 @@ unknown properties with HTTP `400`.
 | `POST /api/sites` | `address`, `title`, `html`, `plainText`, `author`; optional ISO 8601 `publishedAt` | `201`: stored site; `409` for a duplicate address; `404` for an unknown author |
 | `POST /api/visits` | `person`, `address`, `source` | `201`: recorded visit; `404` for an unknown person |
 | `GET /api/people/:personId/history` | MongoDB person ID | `200`: that person's visits, newest first; `404` for an unknown person |
+| `GET /api/search?q=<query>` | Plain-word query, up to 200 characters | `200`: relevant search results; `400` for malformed queries |
 
 `author` and `person` are existing Person IDs. There is no person-creation endpoint
-or automatic data insertion in this stage: a fresh database returns `[]` from
-`GET /api/people`. Use an existing database person for the write examples below.
+or automatic data insertion at application startup. Run `npm run seed` to create
+the demonstration people, or use an existing database person for write examples.
 
 Addresses are case-insensitive identifiers for locally stored sites. Normalization
 trims surrounding whitespace, removes a leading `http://` or `https://`, removes
@@ -169,6 +170,56 @@ JSON
 curl "$API_URL/people/$PERSON_ID/history"
 ```
 
+## Deterministic seed and content search
+
+With Docker running and the existing environment files configured, run from the
+repository root:
+
+```sh
+npm run db:up
+npm run seed
+npm run dev:backend
+```
+
+The seed command builds the backend, connects using `apps/backend/.env`'s
+`MONGODB_URI`, writes the seed, closes the connection, and exits without starting
+an HTTP server. It can be rerun at any time. Fixed-ID MongoDB upserts restore the
+same 4 people, 10 original pages, and 38 visits without duplicating them or deleting
+unrelated records. Both authors own 5 pages. Visits span exactly
+`2026-10-01T09:00:00.000Z` to `2026-10-01T10:00:00.000Z`, include repeats and missing
+addresses, and give Ada a linked trail through all 10 pages. IDs, content,
+publication dates, and visit times do not depend on the machine's clock.
+
+Seeded HTML uses `<a href="https://tides.local" data-address="tides.local">` for
+internal links. A future frontend can intercept `a[data-address]` and use the
+canonical address. Several targets deliberately have no Site record; seeding
+preserves these links and records missing visits without creating placeholder sites.
+
+In another terminal, query words that occur in the written body, not the titles:
+
+```sh
+curl --get 'http://localhost:3001/api/search' --data-urlencode 'q=bioluminescence'
+curl --get 'http://localhost:3001/api/search' --data-urlencode 'q=cyanotype'
+curl --get 'http://localhost:3001/api/search' --data-urlencode 'q=harbor garden'
+curl 'http://localhost:3001/api/search?q=' # []
+```
+
+Search uses one MongoDB text index over both `title` and `plainText`, with title
+weight 5 and body weight 1. It matches whole words case- and accent-insensitively,
+without stemming or stop-word removal. Multiple words use OR semantics. Results
+sort by descending text relevance, then ascending unique address, and are limited
+to 50. Each result contains `address`, `title`, a matching plain-text `excerpt`,
+`author` (`_id` and `name`, or `null` if absent), and ISO `publishedAt`; it never
+includes the HTML field. A title-only match uses title text for the excerpt.
+The existing unique-address and per-person history indexes remain, and a compound
+name/ID index supports stable people lookup ordering. Indexes are ready before
+the backend accepts requests or the seeder writes records.
+
+A missing, empty, or whitespace-only `q` returns `[]` without querying MongoDB.
+Whitespace is collapsed. Queries support Unicode letters and numbers, spaces,
+and apostrophes or hyphens within words. Arrays, objects, overlong values,
+non-whitespace control characters, quotes, regex syntax, and search operators receive `400`.
+
 ## Build and verification
 
 ```sh
@@ -186,8 +237,8 @@ excluded from Git.
 
 `npm test` compiles and runs the backend unit tests in the ignored `.test-dist`
 directory. The tests cover address normalization, unique-index setup and duplicate
-error handling, missing sites, DTO validation, visit outcomes, and per-person
-history. They use model doubles and in-memory Mongoose documents and do not
+error handling, missing sites, DTO validation, visit outcomes, per-person history,
+deterministic upserts, link trails, and content search. They use model doubles and in-memory Mongoose documents and do not
 require a running MongoDB server. Production builds exclude the test files.
 
 After building, run both applications in production mode locally:
@@ -210,6 +261,7 @@ npm start
 | `npm run lint` | Lint both applications with ESLint |
 | `npm run typecheck` | Check both applications with TypeScript |
 | `npm test` | Run the backend unit tests |
+| `npm run seed` | Upsert the deterministic demonstration data |
 | `npm run db:up` | Start MongoDB and wait for readiness |
 | `npm run db:logs` | Follow MongoDB logs |
 | `npm run db:down` | Stop MongoDB and retain the database volume |
