@@ -21,6 +21,7 @@
     "start:backend": "npm run start --workspace @wyxan/backend",
     "lint": "npm run lint --workspaces",
     "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspace @wyxan/backend",
     "db:up": "docker compose up -d --wait mongodb",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f mongodb"
