@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createBrowserApi } from "../browser/api";
 import { BrowserSession } from "../browser/session";
+import type { ScrollPosition } from "../browser/viewport-state";
 import { BrowserShell } from "./browser-shell";
 
 export function BrowserApp() {
@@ -25,6 +26,16 @@ export function BrowserApp() {
   }, [session]);
   const actions = useMemo(
     () => ({
+      back: () => {
+        void session.back();
+      },
+      forward: () => {
+        void session.forward();
+      },
+      saveScroll: (id: number, position: ScrollPosition) =>
+        session.saveScroll(id, position),
+      attachViewport: (id: number, capture: () => Promise<ScrollPosition>) =>
+        session.attachViewport(id, capture),
       selectPerson: (id: string) => session.selectPerson(id),
       setAddress: (value: string) => session.setAddress(value),
       go: () => {

@@ -20,7 +20,7 @@ import {
   BrowserShell,
   type BrowserActions,
 } from "../src/components/browser-shell";
-import { fixture } from "./helpers";
+import { fixture, PERSON_ID, site } from "./helpers";
 
 const channel = "11111111-1111-4111-8111-111111111111";
 
@@ -138,10 +138,14 @@ test("normalization accepts stored internal identifiers and never treats them as
   assert.equal(enteredAddress("//outside.invalid"), null);
 });
 
-test("the shell displays disabled back and forward controls, a person selector and a named address form", () => {
+test("an empty session renders disabled traversal controls, a person selector and an address form", () => {
   const { session } = fixture();
   const noop = () => undefined;
   const actions: BrowserActions = {
+    back: noop,
+    forward: noop,
+    saveScroll: noop,
+    attachViewport: () => noop,
     selectPerson: noop,
     setAddress: noop,
     go: noop,
@@ -166,4 +170,63 @@ test("the shell displays disabled back and forward controls, a person selector a
   assert.ok(markup.includes('id="site-address"'));
   assert.ok(markup.includes('aria-label="Page viewport"'));
   assert.equal(markup.includes("<iframe"), false);
+});
+
+test("rendered controls, title, iframe snapshot and address follow the session cursor", async () => {
+  const { session, api } = fixture();
+  const noop = () => undefined;
+  const actions: BrowserActions = {
+    back: noop,
+    forward: noop,
+    saveScroll: noop,
+    attachViewport: () => noop,
+    selectPerson: noop,
+    setAddress: noop,
+    go: noop,
+    followLink: noop,
+    retryPeople: noop,
+    retryNavigation: noop,
+  };
+  const render = () =>
+    renderToStaticMarkup(
+      <BrowserShell
+        state={session.getSnapshot()}
+        actions={actions}
+        parentOrigin="http://mini-browser.test"
+      />,
+    );
+  const disabled = (markup: string, label: string) =>
+    markup
+      .match(new RegExp(`<button[^>]*aria-label="${label}"[^>]*>`))?.[0]
+      .includes('disabled=""');
+  await session.loadPeople();
+  session.selectPerson(PERSON_ID);
+  await session.navigate("harbor.local", "typed");
+  let markup = render();
+  assert.equal(disabled(markup, "Back"), true);
+  assert.equal(disabled(markup, "Forward"), true);
+  api.getSite.mock.mockImplementationOnce(async () => ({
+    ...site,
+    address: "tides.local",
+    title: "The changing tides",
+  }));
+  await session.navigate("tides.local", "link");
+  markup = render();
+  assert.equal(disabled(markup, "Back"), false);
+  assert.equal(disabled(markup, "Forward"), true);
+  assert.ok(markup.includes("<h1>The changing tides</h1>"));
+  await session.back();
+  markup = render();
+  assert.equal(disabled(markup, "Back"), true);
+  assert.equal(disabled(markup, "Forward"), false);
+  assert.ok(markup.includes('value="harbor.local"'));
+  assert.ok(markup.includes("<h1>A walking map</h1>"));
+  assert.ok(markup.includes('sandbox="allow-scripts"'));
+  assert.equal(markup.includes("allow-same-origin"), false);
+  assert.ok(markup.includes("data-scroll-y=&quot;0&quot;"));
+  await session.forward();
+  markup = render();
+  assert.ok(markup.includes('value="tides.local"'));
+  assert.ok(markup.includes("<h1>The changing tides</h1>"));
+  assert.equal(api.getSite.mock.callCount(), 2);
 });

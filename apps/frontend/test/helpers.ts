@@ -20,17 +20,23 @@ export const site: Site = {
 export function fixture() {
   const api = {
     listPeople: mock.fn(async (_signal?: AbortSignal) => people),
-    getSite: mock.fn(async (address: string, _signal?: AbortSignal) => ({ ...site, address })),
+    getSite: mock.fn(async (address: string, _signal?: AbortSignal) => ({
+      ...site,
+      address,
+    })),
     recordVisit: mock.fn(
-      async (_visit: VisitInput, _signal?: AbortSignal) => undefined,
+      async (_visit: VisitInput, _signal?: AbortSignal): Promise<void> =>
+        undefined,
     ),
   } satisfies BrowserApi;
   return { api, session: new BrowserSession(api) };
 }
 export function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }

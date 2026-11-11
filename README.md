@@ -1,11 +1,12 @@
 # Mini Web Browser
 
-Wyxan Full Stack Technical Assessment, stage 4: secure browser interface and site navigation.
+Wyxan Full Stack Technical Assessment, stage 5: browser-session navigation and page-state restoration.
 
 This npm workspaces monorepo contains a Next.js frontend, a NestJS backend, and a
 local MongoDB service. The frontend supports person selection, typed browsing and
-internal links in an isolated page viewport. Back and forward are displayed but
-disabled; there is no navigation stack, search UI, history UI or publishing UI.
+internal links in an isolated page viewport. Session Back and Forward restore the
+original page snapshots and viewport scroll. There is no search UI, persistent
+history UI, history jumping or publishing UI.
 `GET /api` still returns initialization status.
 
 ## Architecture
@@ -13,7 +14,7 @@ disabled; there is no navigation stack, search UI, history UI or publishing UI.
 | Path | Purpose |
 | --- | --- |
 | `apps/frontend` | Next.js App Router, React, and TypeScript |
-| `apps/frontend/src/app` | Root layout, placeholder page, and global styles |
+| `apps/frontend/src/app` | Root layout, browser interface, and global styles |
 | `apps/backend` | NestJS and TypeScript |
 | `apps/backend/src` | Bootstrap, validation, and people/sites/visits modules |
 | `apps/backend/test` | Focused unit tests using Node.js's built-in test runner |
@@ -252,16 +253,51 @@ removed. Address strings are database lookup identifiers, never fetched websites
 so broken links remain valid content and produce the in-product Nowhere state.
 
 The frontend uses only `sanitizedHtml` in a `srcDoc` iframe. Its sandbox allows
-scripts solely for one fixed link bridge and deliberately omits `allow-same-origin`,
+scripts solely for one fixed link/scroll bridge and deliberately omits `allow-same-origin`,
 forms, popups and top-navigation permissions. A CSP meta tag precedes content,
 denies network resources/connections and forms, and pins the exact bridge and
 trusted stylesheet by SHA-256; inline handlers and author styles are forbidden.
 The bridge is injected after sanitization, prevents link defaults (including
-modified/middle clicks), and sends only an internal address to the exact parent
-origin. Opaque frames emit a `null` origin, which is not a trustworthy identity:
+modified/middle clicks), and sends internal addresses and scroll coordinates to
+the exact parent origin. Opaque frames emit a `null` origin, which is not a
+trustworthy identity:
 the parent also checks the current frame's WindowProxy, a fresh per-document
 channel, exact message shape and canonical address. Only then may it browse and
 record source `link`. Tests pin the hashes and exercise real Chromium containment.
+
+## Session navigation decisions
+
+Each resolved typed address or internal link appends one in-memory entry with the
+normalized address, shown/Nowhere outcome, title, sanitized HTML snapshot, author
+and publication display metadata, and viewport coordinates. Repeated addresses
+are separate entries. Back/Forward move the cursor through those snapshots,
+update the address bar/title/buttons, and never refetch or create Visits. Returning
+therefore shows the version originally seen, including an original missing page.
+A new resolved navigation after Back permanently discards the forward branch;
+loading, cancelled and API-error attempts do not become entries or discard it.
+Back dismisses an unfinished/failed request to restore the last resolved entry.
+
+One Visit POST is issued for each resolved new typed/link entry, including missing
+addresses. Traversal is restoration rather than a new browse, so it sends no POST.
+Visit failures remain attached to their original entry and are not automatically
+retried, avoiding duplicate writes after an ambiguous network failure. An already
+sent request may still finish on the server after client cancellation.
+
+Changing or clearing the selected person cancels active page/Visit requests and
+resets the entire trail, cursor, draft and viewport. Selecting that person again
+starts fresh; sessions are not persisted across person changes or page reloads.
+Aborted-request checks and monotonically increasing operation IDs reject late
+replies. Rapid traversal clicks reserve successive cursor destinations while the
+current frame's scroll capture is pending.
+
+The opaque iframe saves its exact scroll coordinates through a validated
+request/reply before departure, then restores numeric coordinates after its saved
+HTML has laid out. A capture timeout keeps the current page in place and reports
+an error rather than losing its position. Parent-to-frame messages require `*`
+because the frame has an opaque origin; the bridge checks the parent WindowProxy,
+exact parent origin, document channel, command shape and request ID. The parent
+checks the frame identity/channel and bounded finite coordinates on every reply.
+No DOM access, additional sandbox permission or network capability is granted.
 
 ## Build and verification
 
@@ -279,9 +315,10 @@ not require MongoDB to be running. Frontend output is generated in
 Dependencies, build output, TypeScript caches, and local environment files are
 excluded from Git.
 
-`npm test` runs both apps' tests, including typed/link navigation, sanitization,
-message validation and real Chromium iframe/CSP checks, alongside the existing
-domain, seed and search tests. API/database tests use doubles and do not require
+`npm test` runs both apps' tests, including typed/link navigation, four-page
+traversal, snapshot/scroll restoration, branch loss, person resets, request races,
+sanitization, message validation and real Chromium iframe/CSP/scroll checks,
+alongside the existing domain, seed and search tests. API/database tests use doubles and do not require
 MongoDB. Tests compile into ignored `.test-dist` directories. If using an existing
 Chromium installation, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable
 instead of downloading a browser. Production bundles exclude test code.

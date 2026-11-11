@@ -1,10 +1,18 @@
 "use client";
 
-import type { BrowserState } from "../browser/session";
+import { navigationAvailability, type BrowserState } from "../browser/session";
+import type { ScrollPosition } from "../browser/viewport-state";
 import { SecureViewport } from "./secure-viewport";
 import { Icon } from "./icon";
 
 export interface BrowserActions {
+  back(): void;
+  forward(): void;
+  saveScroll(entryId: number, position: ScrollPosition): void;
+  attachViewport(
+    entryId: number,
+    capture: () => Promise<ScrollPosition>,
+  ): () => void;
   selectPerson(id: string): void;
   setAddress(value: string): void;
   go(): void;
@@ -24,10 +32,11 @@ export function BrowserShell({
 }) {
   const navigation = state.navigation;
   const loading = navigation.phase === "loading";
+  const available = navigationAvailability(state);
   const person = state.people.items.find((item) => item._id === state.personId);
   const shown = navigation.phase === "shown";
   const title = shown
-    ? navigation.site.title
+    ? navigation.title
     : navigation.phase === "not_found"
       ? "Nowhere"
       : loading
@@ -37,9 +46,6 @@ export function BrowserShell({
           : "A smaller web. A little more wonder.";
   const visitError =
     shown || navigation.phase === "not_found" ? navigation.visitError : null;
-  const author = shown
-    ? state.people.items.find((item) => item._id === navigation.site.author)
-    : null;
 
   return (
     <main className="app-shell">
@@ -67,7 +73,9 @@ export function BrowserShell({
           <div className="current-tab">
             <Icon name="globe" />
             <span>
-              {shown ? navigation.site.title : "Your corner of the web"}
+              {shown || navigation.phase === "not_found"
+                ? navigation.title
+                : "Your corner of the web"}
             </span>
           </div>
           <span className="window-caption">WYXAN BROWSER</span>
@@ -76,17 +84,25 @@ export function BrowserShell({
           <div className="direction-buttons">
             <button
               type="button"
-              disabled
+              disabled={!available.back}
+              onClick={actions.back}
               aria-label="Back"
-              title="Back navigation is unavailable"
+              title={
+                available.back
+                  ? "Back to the previous page"
+                  : "No previous page"
+              }
             >
               <Icon name="back" />
             </button>
             <button
               type="button"
-              disabled
+              disabled={!available.forward}
+              onClick={actions.forward}
               aria-label="Forward"
-              title="Forward navigation is unavailable"
+              title={
+                available.forward ? "Forward to the next page" : "No next page"
+              }
             >
               <Icon name="forward" />
             </button>
@@ -119,9 +135,7 @@ export function BrowserShell({
             <button
               className="go-button"
               type="submit"
-              disabled={
-                !state.personId || loading || !state.addressDraft.trim()
-              }
+              disabled={!state.personId || !state.addressDraft.trim()}
             >
               Go <Icon name="arrow" />
             </button>
@@ -199,14 +213,14 @@ export function BrowserShell({
               <p>
                 {navigation.address}
                 <span className="heading-dot">·</span>
-                {author?.name ?? "Local author"}
+                {navigation.authorName}
                 <span className="heading-dot">·</span>
                 {new Intl.DateTimeFormat("en-GB", {
                   day: "numeric",
                   month: "short",
                   year: "numeric",
                   timeZone: "UTC",
-                }).format(new Date(navigation.site.publishedAt))}
+                }).format(new Date(navigation.publishedAt))}
               </p>
             ) : (
               <p>
@@ -229,15 +243,17 @@ export function BrowserShell({
           {shown ? (
             <SecureViewport
               key={navigation.id}
-              site={navigation.site}
+              entry={navigation}
               parentOrigin={parentOrigin}
               onNavigate={actions.followLink}
+              onSaveScroll={actions.saveScroll}
+              onAttachViewport={actions.attachViewport}
             />
           ) : loading ? (
             <div className="viewport-state" role="status">
               <div className="loading-ring" />
               <h2>Opening {navigation.address}</h2>
-              <p>Finding your page and recording this visit…</p>
+              <p>Finding your page…</p>
             </div>
           ) : navigation.phase === "not_found" ? (
             <div className="viewport-state nowhere">

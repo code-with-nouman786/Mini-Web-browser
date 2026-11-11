@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { chromium, type Browser, type Page } from "playwright";
+import type { ScrollPosition } from "../src/browser/viewport-state";
 import {
   buildFrameDocument,
   FRAME_PERMISSIONS,
@@ -22,7 +23,11 @@ after(async () => {
   await browser?.close();
 });
 
-async function viewport(page: Page, content: string) {
+async function viewport(
+  page: Page,
+  content: string,
+  scroll: ScrollPosition = { x: 0, y: 0 },
+) {
   await page.route(`${origin}/**`, (route) =>
     route.fulfill({
       contentType: "text/html",
@@ -42,6 +47,7 @@ async function viewport(page: Page, content: string) {
       const received: unknown[] = [];
       Object.assign(window, { received });
       window.addEventListener("message", (event) => {
+        if (event.data?.type !== "wyxan:navigate") return;
         received.push({
           data: event.data,
           origin: event.origin,
@@ -52,7 +58,7 @@ async function viewport(page: Page, content: string) {
       window.document.body.append(frame);
     },
     {
-      document: buildFrameDocument(content, channel, origin),
+      document: buildFrameDocument(content, channel, origin, scroll),
       sandbox: FRAME_SANDBOX,
       permissions: FRAME_PERMISSIONS,
     },
@@ -167,6 +173,55 @@ test("Chromium CSP blocks author scripts, handlers, forms and all resource reque
     assert.deepEqual(requests, []);
     assert.equal(page.url(), `${origin}/`);
     assert.equal(frame.url(), "about:srcdoc");
+  } finally {
+    await page.close();
+  }
+});
+
+test("Chromium restores saved iframe scroll and captures its exact departure position across a remount", async () => {
+  const page = await browser.newPage();
+  try {
+    const content = `<h1>Original snapshot</h1>${"<p>A long original page for scrolling.</p>".repeat(150)}`;
+    const frame = await viewport(page, content, { x: 0, y: 880 });
+    await frame.waitForFunction(() => window.scrollY === 880);
+    await frame.evaluate(() => window.scrollTo(0, 1240));
+    const captured = await page.evaluate(
+      ({ channel }) =>
+        new Promise<{ x: number; y: number }>((resolve) => {
+          const frameWindow = document.querySelector("iframe")!.contentWindow!;
+          const receive = (event: MessageEvent) => {
+            if (
+              event.source === frameWindow &&
+              event.origin === "null" &&
+              event.data?.type === "wyxan:captured-scroll" &&
+              event.data?.channel === channel &&
+              event.data.requestId === 1
+            ) {
+              window.removeEventListener("message", receive);
+              resolve(event.data.position);
+            }
+          };
+          window.addEventListener("message", receive);
+          frameWindow.postMessage(
+            { type: "wyxan:capture-scroll", channel, requestId: 1 },
+            "*",
+          );
+        }),
+      { channel },
+    );
+    assert.deepEqual(captured, { x: 0, y: 1240 });
+    const restored = await viewport(page, content, captured);
+    await restored.waitForFunction(() => window.scrollY === 1240);
+    assert.equal(
+      await restored
+        .getByRole("heading", { name: "Original snapshot" })
+        .count(),
+      1,
+    );
+    assert.equal(
+      await page.locator("iframe").getAttribute("sandbox"),
+      "allow-scripts",
+    );
   } finally {
     await page.close();
   }
